@@ -15,6 +15,7 @@
  *   __rs.status()   counts of what has been captured so far
  *   __rs.list()     table of captured media/transcript URLs
  *   __rs.dump()     downloads riverside-manifest.json (feed it to download.mjs)
+ *   __rs.tsv()      downloads riverside-urls.tsv (feed it to export.sh, yt-dlp style)
  *   __rs.captures() downloads riverside-captures.json (raw JSON, for debugging)
  *   __rs.scan()     re-scan the current page's links and media elements
  *   __rs.clear()    wipe stored data
@@ -259,6 +260,38 @@
       downloadText('riverside-manifest.json', JSON.stringify(manifest, null, 2));
       console.log(`[rs] wrote riverside-manifest.json with ${items.length} items`);
       return manifest;
+    },
+    // yt-dlp style list: one line per file, tab separated: studio, recording, filename, kind, url.
+    // Keeps the best video per recording plus every transcript. Feed it to export.sh.
+    tsv() {
+      const rank = q => /2160|4k/i.test(q) ? 4 : /1080/i.test(q) ? 3 : /720/i.test(q) ? 2 : /480|360/i.test(q) ? 1 : 0;
+      const clean = (v, d) => String(v || d).replace(/[<>:"/\\|?*\x00-\x1f\t]/g, ' ').replace(/\s+/g, ' ').trim() || d;
+      const generic = /^(home|dashboard|studios?|recordings?|projects?|back|download)$/i;
+      const groups = new Map();
+      for (const it of items) {
+        if (it.kind !== 'video' && it.kind !== 'transcript') continue;
+        const crumbs = (it.breadcrumbs || []).filter(c => !generic.test(c));
+        const studio = clean(crumbs[0] || it.studioId, 'Unknown studio');
+        const rec = clean(it.heading || crumbs[crumbs.length - 1] || it.pageTitle || it.recordingId, 'Unknown recording');
+        const key = it.recordingId || it.pageUrl || rec;
+        if (!groups.has(key)) groups.set(key, { studio, rec, videos: [], others: [] });
+        (it.kind === 'video' ? groups.get(key).videos : groups.get(key).others).push(it);
+      }
+      const lines = [];
+      for (const g of groups.values()) {
+        const best = Math.max(0, ...g.videos.map(v => rank(v.quality)));
+        const vids = best > 0 ? g.videos.filter(v => rank(v.quality) === best) : g.videos;
+        for (const it of [...vids, ...g.others]) {
+          let name = (it.downloadName || it.nameHint || '').split('?')[0];
+          if (!/\.\w{2,5}$/.test(name)) name = `${g.rec}${it.quality ? ' ' + it.quality : ''}.${it.ext || (it.kind === 'video' ? 'mp4' : 'txt')}`;
+          lines.push([g.studio, g.rec, clean(name, 'file'), it.kind, it.url].join('\t'));
+        }
+      }
+      const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/tab-separated-values' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'riverside-urls.tsv';
+      document.body.appendChild(a); AC.call(a); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+      console.log(`[rs] wrote riverside-urls.tsv with ${lines.length} files from ${groups.size} recordings`);
+      return lines;
     },
     captures() {
       downloadText('riverside-captures.json', JSON.stringify({ generatedAt: new Date().toISOString(), captures }, null, 2));

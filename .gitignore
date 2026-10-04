@@ -3,3 +3,7 @@ node_modules/
 *.log
 riverside-manifest.json
 riverside-captures.json
+riverside-urls.tsv
+riverside-export/downloads/
+riverside-export/wav/
+riverside-export/done.txt
