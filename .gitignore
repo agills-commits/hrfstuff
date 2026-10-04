@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+*.log
+riverside-manifest.json
+riverside-captures.json
